@@ -1,0 +1,11 @@
+{
+	application, texas_poker,
+ 	[
+ 	 	{description, "An Eralng Web Server for multi-player online texas poker"},
+  	 	{vsn, "1"},
+  	 	{registered, []},
+  	 	{applications, [kernel, stdlib]},
+  	 	{mod, {tp_app, []}},
+  	 	{env, []}
+  	]
+}.

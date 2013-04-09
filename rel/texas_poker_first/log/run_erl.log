@@ -1,0 +1,8 @@
+run_erl [4475] Wed Mar 27 17:30:15 2013
+Args before exec of shell:
+run_erl [4475] Wed Mar 27 17:30:15 2013
+argv[0] = sh
+run_erl [4475] Wed Mar 27 17:30:15 2013
+argv[1] = -c
+run_erl [4475] Wed Mar 27 17:30:15 2013
+argv[2] = exec /Users/xuming/erlang-practice/texas_poker/rel/texas_poker_first/bin/texas_poker console '' 
