@@ -12,9 +12,9 @@ I build it on aws.
 
 Architecture:
   
-  ELB --->  EC2 
-      |           --> DynamoDB
-      |-->  EC2
+  ELB -->  EC2 
+   ----->  EC2  ---> DynamoDB   
+   ----->  EC2
         
 Tcp connections will be distributed in every EC2 by Elastic Load Balancer. 
 
