@@ -1,4 +1,4 @@
-Texas Poker
+Texas Poker (53% Done)
 
 An Erlang Server for The Muti-player Online Game Texas Poker
 
@@ -12,9 +12,7 @@ I build it on aws.
 
 Architecture:
   
-  ELB -->  EC2 
-   ----->  EC2  ---> DynamoDB   
-   ----->  EC2
+  ELB -->  EC2s  ---> DynamoDB   
         
 Tcp connections will be distributed in every EC2 by Elastic Load Balancer. 
 
