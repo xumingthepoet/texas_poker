@@ -5,7 +5,7 @@
   	 	{vsn, "1"},
   	 	{registered, []},
   	 	{applications, [kernel, stdlib]},
-  	 	{mod, {tp_app, []}},
+  	 	{mod, {dm_app, []}},
   	 	{env, []}
   	]
 }.
