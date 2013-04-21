@@ -2,10 +2,14 @@
 %% Server Internal Protocols
 %%=========================================================
 
+-define(ENTER_ROOM_SUCCESS, enter_room_success).
+-define(ENTER_ROOM_REQUEST, enter_room_request).
+
 -define(HEART_BEAT, heart_beat).
 -define(CAST_CLIENT, cast_client).
--define(IDLE_PLAYER, idle_player).
--define(BUSY_PLAYER, busy_player).
+-define(RECONNECT_IDLE_PLAYER, idle_player).
+-define(RECONNECT_BUSY_PLAYER, busy_player).
+-define(RECONNECT_ERROR_PLAYER, error_player).
 
 -define(SEND_MSG_TO_CLIENT, send_msg_to_clent).
 -define(PLAYER_PROCESS_TERMINATED, player_process_terminated). 
@@ -20,6 +24,7 @@
 
 -define(GLOBAL_PLAYER_PROCESS_NAME(ID), {p, ID}).
 
+%% dm_player  
 -record(player_info, {uid, info}).
 -record(game_info, {room_id, room_mod, info}).
 
@@ -31,10 +36,11 @@
 -define(LOGIN, <<"login">>).
 -define(LOGOUT, <<"logout">>).
 -define(ENTER_ROOM, <<"enter_room">>).
--define(GAME_TYPE, <<"game_type">>).
--define(UID, <<"uid">>).
 -define(GAME_PROTOCOL, <<"game_protocol">>).
--define(GAME_ACTION, <<"game_action">>).
+-define(PROFILE_PROTOCOL, <<"profile_protocol">>).
+-define(SOCIAL_PROTOCOL, <<"social_protocol">>).
+
+-define(CONTENT, <<"content">>).
 
 %%=========================================================
 %% Binary Json Iolists to Client 
@@ -46,3 +52,4 @@
 -define(MESSAGE_RECONNECT_SUCCESS, [<<"{\"api\": \"reconnect_success\"}">>]).
 -define(MESSAGE_RECONNECT_SUCCESS_2(Msg), [<<"{\"api\": \"reconnect_success_2\",">>, <<"\"info\": ">>, Msg, "}"]).
 -define(MESSAGE_RECONNECT_FAILED, [<<"{\"api\": \"reconnect_failed\"}">>]).
+-define(MESSAGE_ENTER_ROOM_SUCCESS(Msg), [<<"{\"api\": \"enter_room_succcess\",">>, <<"\"info\": ">>, Msg, "}"]).

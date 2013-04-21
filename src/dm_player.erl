@@ -9,10 +9,13 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-export([to_client/2, to_room/2]).
+
 -record(state, {tcp, pid_state, player_info, game_info}).
 
 start_link(Pid_tcp, UID) ->
-    gen_server:start_link({global, ?GLOBAL_PLAYER_PROCESS_NAME(UID)}, ?MODULE, [Pid_tcp, UID], []).  
+    gen_server:start_link({global, ?GLOBAL_PLAYER_PROCESS_NAME(UID)}, 
+        ?MODULE, [Pid_tcp, UID], []).  
 
 init([Pid_tcp, UID]) -> 
     Player_info = dm_database:get_player_info(UID),
@@ -44,21 +47,30 @@ code_change(_OldVsn, State, _Extra) ->
 %%==========================
 
 process_protocol(Module, From, Msg, State, Method) ->
+    util:log_incoming_msg(?MODULE, Module, From, Msg, State, Method),
     case {Method, Module, Msg} of
         {terminate, _, _} ->
             graceful_termination(State);
         {info, _, timeout} ->
             {stop, normal, State};
-        {call, ?TCP_MODULE_NAME, ?RECONNECT_PLAYER} ->
-            process_reconnect(State, From);
-        {call, ?TCP_MODULE_NAME, {?ENTER_ROOM, Game_type}} ->
-            process_enter_room(State, Game_type);
         {cast, _, check_tcp_alive} ->
             process_check_tcp_alive(State);
+        {cast, _, ?HEART_BEAT} ->
+            process_heart_beat(State);
+        {cast, _, {?GAME_PROTOCOL, Message}} ->
+            process_game_message(State, Message);
+        {cast, _, {?PROFILE_PROTOCOL, Message}} ->
+            process_profile_message(State, Message);
+        {cast, _, {?SOCIAL_PROTOCOL, Message}} ->
+            process_social_message(State, Message);
+        {cast, ?TCP_MODULE_NAME, ?RECONNECT_PLAYER} ->
+            process_tcp_reconnect(State, From);
+        {cast, ?TCP_MODULE_NAME, {?ENTER_ROOM, Game_type}} ->
+            process_enter_room(State, Game_type);
+        {cast, _, {?ENTER_ROOM_SUCCESS, Mod, Room_pid, Game_info}} ->
+            process_enter_room_success(State, Mod, Room_pid, Game_info);
         {cast, ?TCP_MODULE_NAME, ?LOGOUT} ->
             process_logout(State, From);
-        {cast, ?TCP_MODULE_NAME, ?HEART_BEAT} ->
-            process_heart_beat(State);
         {cast, ?TCP_MODULE_NAME, ?TCP_CLOSED} ->
             process_tcp_closed_or_terminated(State, From);
         {cast, ?TCP_MODULE_NAME, ?TCP_TERMINATED} ->
@@ -66,6 +78,23 @@ process_protocol(Module, From, Msg, State, Method) ->
         _ ->
             process_unintended_msg(State, Method, Msg)
     end.
+
+process_game_message(State, Message) ->
+    case State#state.game_info of
+        undefined ->
+            {noreply, State};
+        Game_info ->
+            Mod  = Game_info#game_info.room_mod,
+            {Player_info, Game_info2} = dm_game:on_player_message(Mod, State#state.tcp,
+            State#state.player_info, State#state.game_info, Message),
+            {noreply, State#state{player_info = Player_info, game_info = Game_info2}}
+    end.
+
+process_profile_message(State, _Message) ->
+    {noreply, State}.
+
+process_social_message(State, _Message) ->
+    {noreply, State}.
 
 graceful_termination(State) ->
     cast_pid(?PLAYER_PROCESS_TERMINATED, State#state.tcp),
@@ -77,9 +106,19 @@ graceful_termination(State) ->
     end.
 
 process_enter_room(State, Game_type) ->
-    {ok, Game_info} = gen_server:call(dm_room_manager, {?ENTER_ROOM, Game_type}),
-    State#state{game_info = Game_info}.
-    
+    case State#state.game_info of
+        undefined ->
+            gen_server:cast(dm_room_manager, {?ENTER_ROOM, Game_type, self()});
+        Game_info ->
+            to_client(State#state.tcp, dm_game:info2client(State#state.player_info, Game_info))
+    end,
+    {noreply, State}.
+
+process_enter_room_success(State, Mod, Room_pid, Game_info) ->
+    to_client(State#state.tcp, ?MESSAGE_ENTER_ROOM_SUCCESS(dm_game:info2client(State#state.player_info, 
+        #game_info{room_mod=Mod, info=Game_info}))),
+    {noreply, State#state{game_info = #game_info{room_mod=Mod, room_id=Room_pid, info=Game_info}}}.
+
 process_check_tcp_alive(State) ->
     case {State#state.tcp, State#state.pid_state} of
         {undefined, working} ->
@@ -102,26 +141,31 @@ process_check_tcp_alive(State) ->
             end
     end.
 
-process_reconnect(State, From) ->
+process_tcp_reconnect(State, From) ->
     case State#state.tcp of
+        undefined ->
+            ok;
         From ->
             ok;
         Else ->
-            dm_log:backend("dm_player process_reconnect . old :~p , new :~p .", [State#state.tcp, From]),
+            dm_log:backend("dm_player process_reconnect . old :~p , new :~p .~n", [State#state.tcp, From]),
             cast_pid(?RECONNECT_TO_OTHER_TCP, Else)
     end,
     Player_info = dm_database:get_player_info(State#state.player_info#player_info.uid),
     case {State#state.game_info, Player_info} of
         {_, undefined} ->
-            {reply, {error, get_player_info_failed}, State};
+            cast_pid(?RECONNECT_ERROR_PLAYER, From),
+            {noreply, State};
         {undefined, Player_info} ->
-            {reply, {ok, ?IDLE_PLAYER}, State#state{tcp = From, pid_state = working, player_info = Player_info}};
+            cast_pid(?RECONNECT_IDLE_PLAYER, From),
+            {noreply, State#state{tcp = From, pid_state = working, player_info = Player_info}};
         {Game_info, Player_info} ->
-            {ok , Game} = call_pid(?RECONNECT_PLAYER, Game_info#game_info.room_id),
-            {reply, {ok, ?BUSY_PLAYER, Game}, State#state{tcp = From, pid_state = working, player_info = Player_info}}
+            cast_pid({?RECONNECT_BUSY_PLAYER, dm_game:info2client(Player_info, Game_info)}, From),
+            {noreply, State#state{tcp = From, pid_state = working, player_info = Player_info}}
     end.
 
 process_heart_beat(State) ->
+    dm_log:debug("dm_player process_heart_beat.~n"),
     case State#state.pid_state of
         dying ->
             {noreply, State#state{pid_state = tcp_lost}};
@@ -158,15 +202,12 @@ process_unintended_msg(State, Method, Msg) ->
             {noreply, State}
     end.
 
-send_msg_to_client(State, Message) ->
-    cast_pid({?SEND_MSG_TO_CLIENT, Message}, State#state.tcp).
-    
-call_pid(Msg, Pid) ->
-    case Pid of
-        undefined -> ok;
-        _ -> gen_server:call(Pid, {?MODULE, Msg})
-    end.
+to_client(Tcp, Message) ->
+    cast_pid({?SEND_MSG_TO_CLIENT, Message}, Tcp).
 
+to_room(Room, Message) ->
+    cast_pid({?GAME_PROTOCOL, Message}, Room).
+    
 cast_pid(Msg, Pid) ->
     case Pid of 
         undefined -> ok;

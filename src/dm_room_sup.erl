@@ -2,7 +2,7 @@
 
 -behaviour(supervisor).
 
--export([start_link/0, start_child/0]).
+-export([start_link/0, start_child/1]).
 
 -export([init/1]).
 
@@ -10,9 +10,9 @@ start_link() ->
 	dm_log:debug("dm_room_sup start_link\n"), 
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_child() ->
+start_child(Game_Mod) ->
 	dm_log:debug("dm_room_sup start_child\n"), 
-    supervisor:start_child(?MODULE, []).
+    supervisor:start_child(?MODULE, [Game_Mod]).
 
 init([]) ->
     Room = {dm_room, {dm_room, start_link, []}, temporary, 

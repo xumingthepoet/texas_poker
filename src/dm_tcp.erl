@@ -42,19 +42,28 @@ code_change(_OldVsn, State, _Extra) ->
 %%==========================
 
 process_protocol(Module, From, Msg, State, Method) ->
+    util:log_incoming_msg(?MODULE, Module, From, Msg, State, Method),
     case {Method, Module, Msg} of
         {terminate, _, _} ->
             graceful_termination(State);
         {info, _, {tcp, _Socket, Request}} ->
-            {noreply, process_tcp_request(Request, State)};
+            process_tcp_request(Request, State);
         {info, _, {tcp_closed, _Socket}} ->
             when_tcp_close(State);
         {info, _, timeout} ->
             start_a_new_tcp(State);
         {cast, _, check_player_alive} ->
             process_check_player_alive(State);
-        {cast, ?PLAYER_MODULE_NAME, {?SEND_MSG_TO_CLIENT, Message}} ->
+        {cast, _, {?SEND_MSG_TO_CLIENT, Message}} ->
             process_send_msg_to_client(State, Message);
+        {cast, ?TCP_MODULE_NAME, Msg} ->
+            {noreply, process_single_request(Msg, State)};
+        {cast, ?PLAYER_MODULE_NAME, ?RECONNECT_ERROR_PLAYER} ->
+            process_reconnect_error(State);
+        {cast, ?PLAYER_MODULE_NAME, ?RECONNECT_IDLE_PLAYER} ->
+            process_reconnect_idle(State, From);
+        {cast, ?PLAYER_MODULE_NAME, {?RECONNECT_BUSY_PLAYER, Message}} ->
+            process_reconnect_busy(State, From, Message);
         {cast, ?PLAYER_MODULE_NAME, ?PLAYER_PROCESS_TERMINATED} ->
             process_player_process_termination(State, From, Msg);
         {cast, ?PLAYER_MODULE_NAME, ?RECONNECT_TO_OTHER_TCP} ->
@@ -111,21 +120,34 @@ process_player_process_termination(State, From, Msg) ->
 process_reconnect_to_other_tcp(State) ->
     dm_log:backend("tcp terminated for player reconnecting_to_other_tcp: ~p .~n", [State]),
     {stop, normal, State#state{player = undefined}}.
-    
+
+process_reconnect_error(State) ->
+    cast_client(?MESSAGE_RECONNECT_FAILED, State#state.client),
+    {noreply, State}.
+
+process_reconnect_idle(State, From) ->
+    cast_client(?MESSAGE_RECONNECT_SUCCESS, State#state.client),
+    {noreply, State#state{player=From}}.
+
+process_reconnect_busy(State, From, Msg) ->
+    cast_client(?MESSAGE_RECONNECT_SUCCESS_2(Msg), State#state.client),
+    {noreply, State#state{player=From}}.
+
 process_tcp_request(<<>>, State) ->
-    State;
+    {noreply, State};
 process_tcp_request(Request, State) ->
-    try 
+    %try 
         <<Length:4/big-signed-integer-unit:8, Json:Length/binary ,Rest/binary>> = Request,
-        NewState = process_single_request(Json, State),
-        process_tcp_request(Rest, NewState)
-    catch
+        %process_single_request(Json, State),
+        cast_player(Json, self()),
+        process_tcp_request(Rest, State).
+    %catch
         %Class:Err ->
         %    dm_log:error("process client request: ~p failed. {~p, ~p}~n", [Request, Class, Err]),
         %    State
-        _ -> %% let it crash!
-            State
-    end.
+        %_ -> %% let it crash!
+        %    State
+    %end.
 
 process_single_request(Json, State) ->
     dm_log:backend("client request: ~p .~n", [Json]),
@@ -133,13 +155,19 @@ process_single_request(Json, State) ->
     Api = proplists:get_value(?API, Msg),
     case Api of
         ?LOGIN -> 
-            login(proplists:get_value(?UID, Msg), State);
+            login(proplists:get_value(?CONTENT, Msg), State);
         ?LOGOUT -> 
             logout(State);
         ?ENTER_ROOM ->
-            enter_room(proplists:get_value(?GAME_TYPE, Msg), State);
+            State2 = enter_room(proplists:get_value(?CONTENT, Msg), State),
+            timer:sleep(100),
+            State2;
         ?GAME_PROTOCOL ->
-            game_protocol(proplists:get_value(?GAME_ACTION, Msg), State);
+            game_protocol(proplists:get_value(?CONTENT, Msg), State);
+        ?PROFILE_PROTOCOL ->
+            profile_protocol(proplists:get_value(?CONTENT, Msg), State);
+        ?SOCIAL_PROTOCOL ->
+            social_protocol(proplists:get_value(?CONTENT, Msg), State);
         _Other ->   
             cast_player(Msg, State#state.player),
             State
@@ -148,53 +176,55 @@ process_single_request(Json, State) ->
 login(UID, State) ->
     dm_log:debug("dm_tcp login, uid = ~p .~n", [UID]),
     gen_server:cast(global:whereis_name(?GLOBAL_PLAYER_PROCESS_NAME(UID)), ?HEART_BEAT),
-    timer:sleep(100),
-    Pid_player2 =   global:whereis_name(?GLOBAL_PLAYER_PROCESS_NAME(UID)),
-    Pid_player  =   case Pid_player2 of
-                        undefined ->
-                            try
-                                {ok, Pid} = dm_player_sup:start_child(self(), UID),
-                                cast_client(?MESSAGE_LOGIN_SUCCESS, State#state.client),
-                                Pid
-                            catch
-                                _:_ ->
-                                    dm_log:error("dm_tcp: dm_player_sup:start_child failed. UID:~p.~n", [UID]),
-                                    cast_client(?MESSAGE_LOGIN_FAILED, State#state.client),
-                                    undefined
-                            end;
-                        _ ->
-                            try            
-                                case call_player(?RECONNECT_PLAYER, Pid_player2) of
-                                    {ok, ?IDLE_PLAYER}  ->
-                                        cast_client(?MESSAGE_RECONNECT_SUCCESS, State#state.client),
-                                        Pid_player2;
-                                    {ok, ?BUSY_PLAYER, Msg} ->
-                                        cast_client(?MESSAGE_RECONNECT_SUCCESS_2(Msg), State#state.client),
-                                        Pid_player2;
-                                    _ ->
-                                        dm_log:error("dm_tcp: reconnect_player failed, unknown protocol. UID:~p.~n", [UID]),
-                                        cast_client(?MESSAGE_RECONNECT_FAILED, State#state.client),
-                                        undefined
-                                end
-                            catch
-                                _:_ ->
-                                    dm_log:error("dm_tcp: reconnect_player call_player failed. UID:~p.~n", [UID]),
-                                    cast_client(?MESSAGE_RECONNECT_FAILED, State#state.client),
-                                    undefined
-                            end
-                    end,
-    State#state{player = Pid_player}.
+    timer:sleep(10),
+    Pid_player2 = global:whereis_name(?GLOBAL_PLAYER_PROCESS_NAME(UID)),
+    Cur_player = State#state.player,
+    dm_log:debug("Pid_player2 : ~p, Cur_player : ~p~n", [Pid_player2, Cur_player]),
+    case {Cur_player, Pid_player2} of
+        {undefined, undefined} ->
+            new_player(UID, State);
+        {_, Cur_player} ->
+            cast_client(?MESSAGE_LOGIN_SUCCESS, State#state.client),
+            State;
+        {undefined, _} ->
+            cast_player(?RECONNECT_PLAYER, Pid_player2),
+            State;
+        {_, _} ->
+            logout(State),
+            cast_player(?RECONNECT_PLAYER, Pid_player2),
+            State
+    end.
+
+new_player(UID, State) ->
+    try
+        {ok, Pid} = dm_player_sup:start_child(self(), UID),
+        cast_client(?MESSAGE_LOGIN_SUCCESS, State#state.client),
+        State#state{player=Pid}
+    catch
+        _:_ ->
+            dm_log:error("dm_tcp: new_player failed, can not start_child. UID:~p.~n", [UID]),
+            cast_client(?MESSAGE_LOGIN_FAILED, State#state.client),
+            State
+    end.    
 
 logout(State) ->
     cast_player(?LOGOUT, State#state.player),
     State#state{player=undefined}.
 
 enter_room(GameType, State) ->
-    call_player({?ENTER_ROOM, GameType}, State#state.player),
+    cast_player({?ENTER_ROOM, GameType}, State#state.player),
     State.
 
 game_protocol(Action, State) ->
-    cast_player({?GAME_ACTION, Action}, State#state.player),
+    cast_player({?GAME_PROTOCOL, Action}, State#state.player),
+    State.
+
+profile_protocol(Action, State) ->
+    cast_player({?PROFILE_PROTOCOL, Action}, State#state.player),
+    State.
+
+social_protocol(Action, State) ->
+    cast_player({?SOCIAL_PROTOCOL, Action}, State#state.player),
     State.
 
 process_unintended_msg(State, Method, Msg) ->
@@ -214,17 +244,6 @@ cast_player(Msg, Player) ->
     case Player of
         undefined -> ok;
         Player2 ->  gen_server:cast(Player2, {?MODULE, self(), Msg})
-    end.
-
-call_player(Msg, Player) ->
-    case Player of 
-        undefined -> {error, undefined_player};
-        Player2 -> 
-            Time1 = erlang:now(),
-            Result = gen_server:call(Player2, {?MODULE, Msg}),
-            Time_diff = util:time_diff(Time1),
-            dm_log:backend("Request : ~p , time using = ~p us.", [Msg, Time_diff]),
-            Result
     end.
 
 cast_client(Msg, Client) ->
