@@ -1,6 +1,7 @@
 -module(dm_player).
 
 -include("dm_protocol.hrl").
+-include("dm_database.hrl").
 
 -behaviour(gen_server).
 
@@ -9,7 +10,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([to_client/2, to_room/2]).
+-export([to_client/2, to_peer/2, to_room/2]).
 
 -record(state, {tcp, pid_state, player_info, game_info}).
 
@@ -110,14 +111,17 @@ process_enter_room(State, Game_type) ->
         undefined ->
             gen_server:cast(dm_room_manager, {?ENTER_ROOM, Game_type, self()});
         Game_info ->
-            to_client(State#state.tcp, dm_game:info2client(State#state.player_info, Game_info))
+            Mod = Game_info#game_info.room_mod,
+            to_client(State#state.tcp, ?MESSAGE_ENTER_ROOM_SUCCESS(
+                Mod:info2client(State#state.player_info, Game_info)))
     end,
     {noreply, State}.
 
-process_enter_room_success(State, Mod, Room_pid, Game_info) ->
-    to_client(State#state.tcp, ?MESSAGE_ENTER_ROOM_SUCCESS(dm_game:info2client(State#state.player_info, 
-        #game_info{room_mod=Mod, info=Game_info}))),
-    {noreply, State#state{game_info = #game_info{room_mod=Mod, room_id=Room_pid, info=Game_info}}}.
+process_enter_room_success(State, Mod, Room_pid, Info) ->
+    Game_info = #game_info{room_mod=Mod, room_id=Room_pid, info=Info},
+    to_client(State#state.tcp, ?MESSAGE_ENTER_ROOM_SUCCESS(Mod:info2client(State#state.player_info, 
+        Game_info))),
+    {noreply, State#state{game_info = Game_info}}.
 
 process_check_tcp_alive(State) ->
     case {State#state.tcp, State#state.pid_state} of
@@ -160,7 +164,8 @@ process_tcp_reconnect(State, From) ->
             cast_pid(?RECONNECT_IDLE_PLAYER, From),
             {noreply, State#state{tcp = From, pid_state = working, player_info = Player_info}};
         {Game_info, Player_info} ->
-            cast_pid({?RECONNECT_BUSY_PLAYER, dm_game:info2client(Player_info, Game_info)}, From),
+            Mod = Game_info#game_info.room_mod,
+            cast_pid({?RECONNECT_BUSY_PLAYER, Mod:info2client(Player_info, Game_info)}, From),
             {noreply, State#state{tcp = From, pid_state = working, player_info = Player_info}}
     end.
 
@@ -207,6 +212,9 @@ to_client(Tcp, Message) ->
 
 to_room(Room, Message) ->
     cast_pid({?GAME_PROTOCOL, Message}, Room).
+
+to_peer(Player, Message) ->
+    cast_pid({?GAME_PROTOCOL, Message}, Player).
     
 cast_pid(Msg, Pid) ->
     case Pid of 

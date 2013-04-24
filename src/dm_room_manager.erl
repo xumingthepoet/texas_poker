@@ -47,10 +47,19 @@ code_change(_OldVsn, State, _Extra) ->
 handle_enter_room(Game_type, From, State) ->
     case State#state.current of
         undefined ->
-            {ok, Room_pid} = dm_room_sup:start_child(?GAME_TYPE_TO_MOD(Game_type));
+            Mod = ?GAME_TYPE_TO_MOD(Game_type),
+            case Mod of 
+                undefined ->
+                    {noreply, State};
+                _ ->
+                    {ok, Room_pid} = dm_room_sup:start_child(Mod),
+                    gen_server:cast(Room_pid, {?ENTER_ROOM_REQUEST, From}),
+                    {noreply, State#state{current = Room_pid}}
+            end;
         Room ->
-            Room_pid = Room
-    end,
-    gen_server:cast(Room_pid, {?ENTER_ROOM_REQUEST, From}),
-    {noreply, State#state{current = Room_pid}}.
+            Room_pid = Room,
+            gen_server:cast(Room_pid, {?ENTER_ROOM_REQUEST, From}),
+            {noreply, State#state{current = Room_pid}}
+    end.
+    
 

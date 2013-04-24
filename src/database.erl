@@ -10,3 +10,6 @@ get(Key) ->
 
 set(Key) ->
 	ok.
+
+add(Key, Attribute, Score) ->
+	ok.

@@ -25,31 +25,30 @@
 -define(GLOBAL_PLAYER_PROCESS_NAME(ID), {p, ID}).
 
 %% dm_player  
--record(player_info, {uid, info}).
 -record(game_info, {room_id, room_mod, info}).
 
 %%=========================================================
 %% Request Api from Client
 %%=========================================================
 
--define(API, <<"api">>).
--define(LOGIN, <<"login">>).
--define(LOGOUT, <<"logout">>).
--define(ENTER_ROOM, <<"enter_room">>).
--define(GAME_PROTOCOL, <<"game_protocol">>).
--define(PROFILE_PROTOCOL, <<"profile_protocol">>).
--define(SOCIAL_PROTOCOL, <<"social_protocol">>).
+-define(API, <<"a">>).
+-define(CONTENT, <<"c">>).
 
--define(CONTENT, <<"content">>).
+-define(LOGIN, <<"l">>).
+-define(LOGOUT, <<"lo">>).
+-define(ENTER_ROOM, <<"e">>).
+-define(GAME_PROTOCOL, <<"gp">>).
+-define(PROFILE_PROTOCOL, <<"pp">>).
+-define(SOCIAL_PROTOCOL, <<"sp">>).
 
 %%=========================================================
 %% Binary Json Iolists to Client 
 %%=========================================================
 
--define(MESSAGE_TCP_CONNECTED, [<<"{\"api\": \"tcp_connected\"}">>]).
--define(MESSAGE_LOGIN_SUCCESS, [<<"{\"api\": \"login_success\"}">>]).
--define(MESSAGE_LOGIN_FAILED, [<<"{\"api\": \"login_failed\"}">>]).
--define(MESSAGE_RECONNECT_SUCCESS, [<<"{\"api\": \"reconnect_success\"}">>]).
--define(MESSAGE_RECONNECT_SUCCESS_2(Msg), [<<"{\"api\": \"reconnect_success_2\",">>, <<"\"info\": ">>, Msg, "}"]).
--define(MESSAGE_RECONNECT_FAILED, [<<"{\"api\": \"reconnect_failed\"}">>]).
--define(MESSAGE_ENTER_ROOM_SUCCESS(Msg), [<<"{\"api\": \"enter_room_succcess\",">>, <<"\"info\": ">>, Msg, "}"]).
+-define(MESSAGE_TCP_CONNECTED, [<<"{\"a\": \"tcp_connected\"}">>]).
+-define(MESSAGE_LOGIN_SUCCESS, [<<"{\"a\": \"login_success\"}">>]).
+-define(MESSAGE_LOGIN_FAILED, [<<"{\"a\": \"login_failed\"}">>]).
+-define(MESSAGE_RECONNECT_SUCCESS, [<<"{\"a\": \"reconnect_success\"}">>]).
+-define(MESSAGE_RECONNECT_SUCCESS_2(Msg), [<<"{\"a\": \"reconnect_success_2\",">>, <<"\"c\": ">>, Msg, <<"}">>]).
+-define(MESSAGE_RECONNECT_FAILED, [<<"{\"a\": \"reconnect_failed\"}">>]).
+-define(MESSAGE_ENTER_ROOM_SUCCESS(Msg), [<<"{\"a\": \"enter_room_succcess\",">>, <<"\"c\": ">>, Msg, <<"}">>]).

@@ -18,10 +18,8 @@ start_link(Mod) ->
     gen_server:start_link(?MODULE, [Mod], []).
 
 init([Mod]) ->
-    <<A1:32,A2:32,A3:32>> = crypto:rand_bytes(12),
-    random:seed(A1,A2,A3),
     erlang:send_after(timer:seconds(1), self(), {'$gen_cast',timer}),
-    {ok, #state{game_mod = Mod, room_info = dm_game:init_room(Mod)}}.
+    {ok, #state{game_mod = Mod, room_info = Mod:init_room()}}.
 
 handle_call({Module, Msg}, {From, _Ref}, State) ->
     process_protocol(Module, From, Msg, State, call);
@@ -53,11 +51,11 @@ process_protocol(Module, From, Msg, State, Method) ->
             {stop, normal, State};
         {cast, _, {?ENTER_ROOM_REQUEST, Player}} ->
             Mod = State#state.game_mod,
-            {NewStateInfo, Player_game_info} = Mod:enter_room_request(State#state.room_info),
+            {NewStateInfo, Player_game_info} = Mod:enter_room_request(State#state.room_info, Player),
             gen_server:cast(Player, {?ENTER_ROOM_SUCCESS, State#state.game_mod, self(), Player_game_info}),
             {noreply, State#state{room_info=NewStateInfo}};
         {cast, _, {?GAME_PROTOCOL, Action}} ->
-            process_game_message(State, Action);
+            process_game_message(State, Action, From);
         {cast, _, timer} ->
             process_game_timer(State);
         _ ->
@@ -66,13 +64,13 @@ process_protocol(Module, From, Msg, State, Method) ->
 
 process_game_timer(State) ->
     erlang:send_after(timer:seconds(1), self(), {'$gen_cast',timer}),
-    #state{game_mod=Game_Mod, room_info=Game_info} = State,
-    Game_info2 = dm_game:on_room_timer(Game_Mod, Game_info),
+    #state{game_mod=Mod, room_info=Game_info} = State,
+    Game_info2 = Mod:on_room_timer(Game_info),
     {noreply, State#state{room_info = Game_info2}}.
 
-process_game_message(State, Message) ->
+process_game_message(State, Message, From) ->
     #state{game_mod=Game_Mod, room_info=Game_info} = State,
-    Game_info2 = dm_game:on_room_message(Game_Mod, Game_info, Message),
+    Game_info2 = Game_Mod:on_room_message(Game_info, Message, From),
     {noreply, State#state{room_info = Game_info2}}.
 
 process_unintended_msg(State, Method, Msg) ->
@@ -87,6 +85,12 @@ process_unintended_msg(State, Method, Msg) ->
             dm_log:error("unknown info message to dm_room : ~p, state: ~p. ~n", [Msg, State]),
             {noreply, State}
     end.
+
+broadcast([], Msg) ->
+    ok;
+broadcast([H|T], Msg) ->
+    to_player(H, Msg),
+    broadcast(T, Msg).
 
 to_client(Player, Message) ->
     cast_pid({?SEND_MSG_TO_CLIENT, Message}, Player).

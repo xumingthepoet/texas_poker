@@ -160,7 +160,8 @@ process_single_request(Json, State) ->
             logout(State);
         ?ENTER_ROOM ->
             State2 = enter_room(proplists:get_value(?CONTENT, Msg), State),
-            timer:sleep(100),
+            %% prevent duplicate enter_room request
+            timer:sleep(100),     
             State2;
         ?GAME_PROTOCOL ->
             game_protocol(proplists:get_value(?CONTENT, Msg), State);
