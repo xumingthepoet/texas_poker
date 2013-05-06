@@ -1,6 +1,6 @@
 -module(util).
 
--export([is_process_alive/1, shuffle_lists/1, lists_set_nth/3]).
+-export([is_process_alive/1, shuffle_lists/1, lists_set_nth/3, rearrange_lists/2]).
 
 -export([log_incoming_msg/6, time_diff/1]).
 
@@ -20,14 +20,19 @@ shuffle_lists(List) ->
 	[E || {_, E} <- List2].
 
 lists_set_nth(N, Element, List) ->
-	{H1,[H|T]} = lists:split(N-1, List),
-	lists:flatten(H1, [Element|T]).
+	Fun = fun(E, Acc) -> case Acc of N -> {Element, (Acc+1)}; _ -> {E, (Acc+1)} end end,
+	{List2, _} = lists:mapfoldl(Fun, 1, List),
+	List2.
 
-log_incoming_msg(Module, ModuleFrom, From, timer, State, Method) ->
+rearrange_lists(N, List) ->
+	{Part1, Part2} = lists:split(N, List),
+	lists:append(Part2, Part1).
+
+log_incoming_msg(_Module, _ModuleFrom, _From, timer, _State, _Method) ->
 	ok;
-log_incoming_msg(Module, ModuleFrom, From, check_tcp_alive, State, Method) ->
+log_incoming_msg(_Module, _ModuleFrom, _From, check_tcp_alive, _State, _Method) ->
 	ok;
-log_incoming_msg(Module, ModuleFrom, From, check_player_alive, State, Method) ->
+log_incoming_msg(_Module, _ModuleFrom, _From, check_player_alive, _State, _Method) ->
 	ok;
 log_incoming_msg(Module, ModuleFrom, From, Msg, State, Method) ->
 	dm_log:debug("=========== ~p process_protocol ===========~nModule: ~p~n"++

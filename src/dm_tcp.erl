@@ -15,7 +15,6 @@ start_link(Lsock) ->
     gen_server:start_link(?MODULE, [Lsock], []).
 
 init([Lsock]) ->
-    erlang:send_after(timer:seconds(10), self(), {'$gen_cast',check_player_alive}),
     {ok, #state{lsock = Lsock}, 0}.
 
 handle_call({Module, Msg}, {From, _Ref}, State) ->
@@ -87,6 +86,7 @@ start_a_new_tcp(State) ->
     {ok, Rsock} = gen_tcp:accept(Lsock),
     dm_tcp_sup:start_child(),
     cast_client(?MESSAGE_TCP_CONNECTED, Rsock),
+    erlang:send_after(timer:seconds(10), self(), {'$gen_cast',check_player_alive}),
     {noreply, #state{lsock = Lsock ,client = Rsock}}.
 
 process_send_msg_to_client(State, Message) ->
@@ -96,8 +96,9 @@ process_send_msg_to_client(State, Message) ->
 process_check_player_alive(State) ->
     case State#state.player of
         undefined ->
-            erlang:send_after(timer:seconds(10), self(), {'$gen_cast', check_player_alive}),
-            {noreply, State};
+            %erlang:send_after(timer:seconds(10), self(), {'$gen_cast', check_player_alive}),
+            %{noreply, State};
+            {stop, normal, State#state{player = undefined}};
         P ->
             case util:is_process_alive(P) of
                 true ->
@@ -137,10 +138,16 @@ process_tcp_request(<<>>, State) ->
     {noreply, State};
 process_tcp_request(Request, State) ->
     %try 
-        <<Length:4/big-signed-integer-unit:8, Json:Length/binary ,Rest/binary>> = Request,
+        dm_log:backend("process_tcp_request: ~p .~n", [Request]),
+        case Request of 
+            <<Length:4/big-signed-integer-unit:8, Json:Length/binary ,Rest/binary>> ->
         %process_single_request(Json, State),
-        cast_player(Json, self()),
-        process_tcp_request(Rest, State).
+                cast_player(Json, self()),
+                process_tcp_request(Rest, State);
+            _ ->
+                dm_log:backend("wierd requst : ~p .~n", [Request]),
+                {noreply ,State}
+        end.
     %catch
         %Class:Err ->
         %    dm_log:error("process client request: ~p failed. {~p, ~p}~n", [Request, Class, Err]),
@@ -149,28 +156,28 @@ process_tcp_request(Request, State) ->
         %    State
     %end.
 
-process_single_request(Json, State) ->
+process_single_request(Msg, State) ->
+    Json = dm_protocol:decode(Msg),
     dm_log:backend("client request: ~p .~n", [Json]),
-    {Msg} = dm_protocol:json2msg(Json),
-    Api = proplists:get_value(?API, Msg),
+    Api = dm_protocol:json_get(?API, Json),
     case Api of
         ?LOGIN -> 
-            login(proplists:get_value(?CONTENT, Msg), State);
+            login(dm_protocol:json_get(?CONTENT, Json), State);
         ?LOGOUT -> 
             logout(State);
         ?ENTER_ROOM ->
-            State2 = enter_room(proplists:get_value(?CONTENT, Msg), State),
+            State2 = enter_room(dm_protocol:json_get(?CONTENT, Json), State),
             %% prevent duplicate enter_room request
             timer:sleep(100),     
             State2;
         ?GAME_PROTOCOL ->
-            game_protocol(proplists:get_value(?CONTENT, Msg), State);
+            game_protocol(dm_protocol:json_get(?CONTENT, Json), State);
         ?PROFILE_PROTOCOL ->
-            profile_protocol(proplists:get_value(?CONTENT, Msg), State);
+            profile_protocol(dm_protocol:json_get(?CONTENT, Json), State);
         ?SOCIAL_PROTOCOL ->
-            social_protocol(proplists:get_value(?CONTENT, Msg), State);
+            social_protocol(dm_protocol:json_get(?CONTENT, Json), State);
         _Other ->   
-            cast_player(Msg, State#state.player),
+            cast_player(Json, State#state.player),
             State
     end.
 
@@ -243,7 +250,7 @@ process_unintended_msg(State, Method, Msg) ->
 
 cast_player(Msg, Player) ->
     case Player of
-        undefined -> ok;
+        undefined -> dm_log:error("!!!!!!!!"), ok;
         Player2 ->  gen_server:cast(Player2, {?MODULE, self(), Msg})
     end.
 

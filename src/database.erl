@@ -6,7 +6,7 @@ init() ->
 	ok.
 
 get(Key) ->
-	ok.
+	90000.
 
 set(Key) ->
 	ok.

@@ -10,7 +10,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([to_client/2, to_peer/2, to_room/2]).
+-export([cast_pid/2, to_client/2, to_peer/2, to_room/2]).
 
 -record(state, {tcp, pid_state, player_info, game_info}).
 
@@ -103,24 +103,24 @@ graceful_termination(State) ->
         undefined ->   
             ok;
         Game_info ->   
-            cast_pid(?PLAYER_PROCESS_TERMINATED, Game_info#game_info.room_id)
+            cast_pid({?PLAYER_PROCESS_TERMINATED, Game_info#game_info.info}, Game_info#game_info.room_id)
     end.
 
-process_enter_room(State, Game_type) ->
+process_enter_room(State, Game_type) -> %% maybe wrong to handle !undefined
     case State#state.game_info of
         undefined ->
             gen_server:cast(dm_room_manager, {?ENTER_ROOM, Game_type, self()});
         Game_info ->
             Mod = Game_info#game_info.room_mod,
             to_client(State#state.tcp, ?MESSAGE_ENTER_ROOM_SUCCESS(
-                Mod:info2client(State#state.player_info, Game_info)))
+                Mod:info2client(State#state.player_info, Game_info#game_info.info)))
     end,
     {noreply, State}.
 
 process_enter_room_success(State, Mod, Room_pid, Info) ->
     Game_info = #game_info{room_mod=Mod, room_id=Room_pid, info=Info},
     to_client(State#state.tcp, ?MESSAGE_ENTER_ROOM_SUCCESS(Mod:info2client(State#state.player_info, 
-        Game_info))),
+        Game_info#game_info.info))),
     {noreply, State#state{game_info = Game_info}}.
 
 process_check_tcp_alive(State) ->
@@ -165,7 +165,7 @@ process_tcp_reconnect(State, From) ->
             {noreply, State#state{tcp = From, pid_state = working, player_info = Player_info}};
         {Game_info, Player_info} ->
             Mod = Game_info#game_info.room_mod,
-            cast_pid({?RECONNECT_BUSY_PLAYER, Mod:info2client(Player_info, Game_info)}, From),
+            cast_pid({?RECONNECT_BUSY_PLAYER, Mod:info2client(Player_info, Game_info#game_info.info)}, From),
             {noreply, State#state{tcp = From, pid_state = working, player_info = Player_info}}
     end.
 

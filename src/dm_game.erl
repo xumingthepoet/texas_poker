@@ -15,8 +15,8 @@ on_player_message(Mod, Tcp, Play_info, Game_info, Message) ->
 	{P_info2, Game_info3} = Mod:on_player_message(Tcp, Play_info, Room_pid, Game_info2, Message),
 	case Game_info3 of
 		undefined -> 
-			{Play_info = P_info2, undefined};
+			{P_info2, undefined};
 		_ ->
-			{Play_info = P_info2, Game_info#game_info{info = Game_info3}}
+			{P_info2, Game_info#game_info{info = Game_info3}}
 	end.
     
