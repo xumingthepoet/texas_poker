@@ -44,8 +44,16 @@ compete_number([H1|Hand1], [H2|Hand2]) ->
 			compete_number(Hand1, Hand2)
 	end.
 
+lists2tuple(Cards) ->
+	Fun = fun ([T,N]) -> {T,N} end,
+	lists:map(Fun, Cards).
+
+tuple2lists(Tuple2) ->
+	Fun = fun ({T,N}) -> [T,N] end,
+	lists:map(Fun, Tuple2).
+
 check_hand(Cards) ->
-	check_hand(lists:reverse(lists:keysort(2, Cards)), 10, 
+	check_hand(lists:reverse(lists:keysort(2, lists2tuple(Cards))), 10, 
 	   [fun is_royal_flush/1, 
 		fun is_straight_flush/1,
 		fun is_four_of_a_kind/1,
@@ -60,7 +68,7 @@ check_hand(Cards) ->
 check_hand(Cards, N, [Fun | Funs]) ->
 	[Rank, Hand] = Fun(Cards),
 	case Rank of 
-		_ when Rank > 0 ->	[N, Hand];
+		_ when Rank > 0 ->	[N, tuple2lists(Hand)];
 		_ -> check_hand(Cards, N-1, Funs)
 	end.
 

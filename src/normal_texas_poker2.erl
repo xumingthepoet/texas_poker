@@ -13,12 +13,12 @@
 
 %% room_info for Room process, cards is ?POKER_CARDS , peolple is Player process that watching , 
 %% state <- [ready, pre_flop, flop, true, river, show_down ] , active_ or dealer_position <- lists:seq(1,9).
--record(room_info, {cards, people, counter, timer, active_position, 
-		one_v_one, state, blind_bet, board, pot, high_bet, dealer_position, bets, gamblers}).
+-record(room_info, {cards, people, counter, timer, active_position, one_v_one, state, blind_bet, board, 
+					pot, high_bet, dealer_position, bets, gamblers, win_info}).
 
 %% gamebler is real player model in game , state <- [waiting_next_game, waiting_room, waiting_client ...], 
 %% title <- [name_or_last, small_blind, big_blind, call, raise, check, fold, all_in ], raised <- [true, false]
--record(gambler, {pid, uid, state=waiting_next_game, has_raised=false, title=name_or_last, buyin, hand=[]}).
+-record(gambler, {pid, uid, state=waiting_next_game, has_raised=false, title=name_or_last, buyin, hand=[], hand_info=[]}).
 
 -define(TOTAL_NUMBER_PLYAER, 9).
 -define(WAITING_TIME, 5).
@@ -26,7 +26,7 @@
 init_room() ->
 	#room_info{cards = [], people = [], counter = 0, timer = undefined, one_v_one = false,  state = ready, blind_bet = 10,
 	 board = [], pot = 0, high_bet = 0, dealer_position = 1, active_position = 1,
-	 bets = [0, 0, 0, 0, 0, 0, 0, 0, 0], gamblers = [[], [], [], [], [], [], [], [], []]}.
+	 bets = [0, 0, 0, 0, 0, 0, 0, 0, 0], gamblers = [[], [], [], [], [], [], [], [], []], win_info = []}.
 
 enter_room_request(Room_info, Player) ->
 	People     = [Player | lists:delete(Player, Room_info#room_info.people)],
@@ -67,24 +67,25 @@ info2client(Player_info, Game_info) ->
 	D_p       = Room_info#room_info.dealer_position,
 	Bets      = Room_info#room_info.bets,
 	Gamblers  = protect_privacy_cards(Position, State , Room_info#room_info.gamblers),
+	Win_info  = Room_info#room_info.win_info,
 
 	Json 	  = dm_protocol:json_new([{uid,Uid},{money,Money},{position,Position},{counter,Counter},{ovo,One_v_one},{state,State},{blind,Blind_bet},{board,Board},{pot,Pot},
-				 {high_bet,High_bet},{dealer_position,D_p},{bets,Bets},{gamblers,gamblers_to_json(Gamblers)}]),
+				 {high_bet,High_bet},{dealer_position,D_p},{bets,Bets},{gamblers,gamblers_to_json(Gamblers)},{win_info,Win_info}]),
 	
 	dm_protocol:encode(Json).
 
 protect_privacy_cards(Position, State , Gamblers) ->
 	case {Position, State} of
 		{_, show_down} ->	Gamblers2 = Gamblers;
-		{0, _} -> Gamblers2 = lists:map(fun (G) -> case G of [] -> []; _ -> G#gambler{hand = []} end end, Gamblers);
+		{0, _} -> Gamblers2 = lists:map(fun (G) -> case G of [] -> []; _ -> G#gambler{hand = [], hand_info = []} end end, Gamblers);
 		_ -> 
-			Fun = fun(G, Acc) -> case Acc of Position -> {G, Acc+1}; _ -> case G of [] -> {[], Acc+1}; _ -> {G#gambler{hand = []}, Acc+1} end end end,
+			Fun = fun(G, Acc) -> case Acc of Position -> {G, Acc+1}; _ -> case G of [] -> {[], Acc+1}; _ -> {G#gambler{hand = [], hand_info = []}, Acc+1} end end end,
 			{Gamblers2, _} = lists:mapfoldl(Fun, 1, Gamblers) 
 	end,
 	Gamblers2.
 
 gamblers_to_json(Gamblers) ->
-	lists:map(fun (G) -> case G of [] -> []; _ -> [G#gambler.state, G#gambler.has_raised, G#gambler.title, G#gambler.buyin, G#gambler.hand] end end, Gamblers).
+	lists:map(fun (G) -> case G of [] -> []; _ -> [G#gambler.state, G#gambler.has_raised, G#gambler.title, G#gambler.buyin, G#gambler.hand, G#gambler.hand_info] end end, Gamblers).
 
 on_player_message(Tcp, Player_info, Room_pid, Game_info, Msg) ->
 	Api     = dm_protocol:json_get(?API2, Msg),
@@ -224,21 +225,23 @@ room_wait_time_out(Room_info) ->
 after_action(Room_info) ->
 	Condition = check_room_condition(Room_info),
 	case Condition of
-		buffler_win ->
+		baffler_win ->
 			Room_info;
-		to_show_down -> 
-			Room_info;
+		to_show_down ->
+			dm_room:broadcast(Room_info#room_info.people, player_msg_install(room_state_changed, Room_info)),
+			Room_info1 = set_win_info(deal_all_board_card(reset_gamblers_title_and_raised(fill_pot_and_reset_high_bet(change_game_state(Room_info, show_down))))),
+			Room_info1;
 		deal_next_card ->
 			dm_room:broadcast(Room_info#room_info.people, player_msg_install(room_state_changed, Room_info)),
-			timer:sleep(500),
-			ask_active_gambler(deal_board_card(prepare_active(reset_gamblers_title_and_raised(fill_pot_and_reset_high_bet(change_game_state(Room_info, next_game_state(Room_info)))))));
+			ask_active_gambler(set_hand_info(deal_board_card(prepare_active(reset_gamblers_title_and_raised(fill_pot_and_reset_high_bet(change_game_state(Room_info, next_game_state(Room_info))))))));
 		ask_active_gambler_ ->
 			ask_active_gambler(set_next_active_position(Room_info));
 		_ -> Room_info
 	end.
 	
 check_room_condition(Room_info) ->
-	Gamblers = Room_info#room_info.gamblers,
+	Game_state  = Room_info#room_info.state,
+	Gamblers 	= Room_info#room_info.gamblers,
 	Fun  = fun (G, {{All_in, Fold, Action_done, Action_wait}, Num}) -> 
 			case G of 
 				[] -> {{All_in, Fold, Action_done, Action_wait}, Num}; 
@@ -261,10 +264,11 @@ check_room_condition(Room_info) ->
 		end,
 	{State_statistics, Num} = lists:foldl(Fun, {{0, 0, 0, 0}, 0}, Gamblers),
 	case State_statistics of
-		{_, Fold, _, _} when Fold == Num-1 -> buffler_win;
+		{_, Fold, _, _} when Fold == Num-1 -> baffler_win;
 		{_, _, 0, 0} -> to_show_down;
 		{_, _, 1, 0} -> to_show_down;
-		{_, _, _, 0}-> deal_next_card;
+		{_, _, _, 0} when Game_state == river -> to_show_down;
+		{_, _, _, 0} -> deal_next_card;
 		_ -> ask_active_gambler_
 	end.
 
@@ -367,14 +371,14 @@ try_begin_game(Room_info) ->
 		1 ->
 			Room_info;
 		2 ->
-			begin_game(Room_info#room_info{one_v_one=true});
+			begin_game(Room_info#room_info{one_v_one=true,win_info=[]});
 		_ ->
-			begin_game(Room_info#room_info{one_v_one=false})
+			begin_game(Room_info#room_info{one_v_one=false,win_info=[]})
 	end.
 
 begin_game(Room_info) ->
 	Room_info2 = reset_counter(prepare_active(change_game_state(deal_cards(shuffle_cards(prepare_blind(prepare_dealer(Room_info)))), pre_flop))),
-	Room_info3 = ask_active_gambler(Room_info2).
+	ask_active_gambler(Room_info2).
 
 ask_active_gambler(Room_info) ->
 	Counter         = Room_info#room_info.counter,
@@ -398,7 +402,6 @@ next_game_state(Room_info) ->
 		pre_flop -> flop;
 		flop 	 -> turn;
 		turn 	 -> river;
-		river	 -> show_down;
 		_        -> error
 	end.
 
@@ -445,49 +448,49 @@ prepare_blind(Room_info) ->
 			{Gamblers1, {_, Bets1}} = lists:mapfoldl(Fun, {1, Room_info#room_info.bets}, Gamblers),
 			Room_info#room_info{gamblers=Gamblers1, bets=Bets1, high_bet=Room_info#room_info.blind_bet};
 		_ -> 
-			Gamblers1				 = util:rearrange_lists(Room_info#room_info.dealer_position, Gamblers),
-			Fun 					 = 	fun (G, {Order, Intro}) -> 
-											case G of 
-												[] -> {Order, [[]| Intro]};
-												_ ->
-												    case {Order, G#gambler.state} of 
-												    	{0, waiting_next_game} -> {1, [b| Intro]};
-												    	{0, _} -> {1, [s| Intro]};
-												    	{1, _} -> {2, [b| Intro]};
-												    	{2, waiting_next_game} -> {2, [b| Intro]};
-												    	_ -> {2, [[]| Intro]}
-												    end
-											end
+			Gamblers1	 = util:rearrange_lists(Room_info#room_info.dealer_position, Gamblers),
+			Fun 		 = 	fun (G, {Order, Intro}) -> 
+								case G of 
+									[] -> {Order, [[]| Intro]};
+									_ ->
+									    case {Order, G#gambler.state} of 
+									    	{0, waiting_next_game} -> {1, [b| Intro]};
+									    	{0, _} -> {1, [s| Intro]};
+									    	{1, _} -> {2, [b| Intro]};
+									    	{2, waiting_next_game} -> {2, [b| Intro]};
+									    	_ -> {2, [[]| Intro]}
+									    end
+								end
+							end,
+			{_, Intro1}  = lists:foldl(Fun, {0, []}, Gamblers1),
+			Intro2    	 = util:rearrange_lists(?TOTAL_NUMBER_PLYAER-Room_info#room_info.dealer_position, lists:reverse(Intro1)),
+			Fun1         =  fun (G, {[H|T], Bets}) ->
+								case {G, H} of
+									{[], _} -> {[], {T, [0| Bets]}};
+									{_, b} -> 
+										Pay   = Room_info#room_info.blind_bet,
+										Buyin = G#gambler.buyin,
+										if 	Buyin >= Pay ->
+												Diff = Pay;
+											true ->
+												Diff = Buyin
 										end,
-			{_, Intro1}  			= lists:foldl(Fun, {0, []}, Gamblers1),
-			Intro2    	 			= util:rearrange_lists(?TOTAL_NUMBER_PLYAER-Room_info#room_info.dealer_position, lists:reverse(Intro1)),
-			Fun1                    =  	fun (G, {[H|T], Bets}) ->
-											case {G, H} of
-												{[], _} -> {[], {T, [0| Bets]}};
-												{_, b} -> 
-													Pay   = Room_info#room_info.blind_bet,
-													Buyin = G#gambler.buyin,
-													if 	Buyin >= Pay ->
-															Diff = Pay;
-														true ->
-															Diff = Buyin
-													end,
-													dm_room:to_player(G#gambler.pid, player_msg_install(player_state_changed, {change_balance, -Diff})),
-													{gambler_blind(G, big_blind, Diff), {T, [Diff| Bets]}};	
-												{_, s} ->	
-													Pay   = Room_info#room_info.blind_bet div 2,
-													Buyin = G#gambler.buyin,
-													if 	Buyin >= Pay ->
-															Diff = Pay;
-														true ->
-															Diff = Buyin
-													end,
-													dm_room:to_player(G#gambler.pid, player_msg_install(player_state_changed, {change_balance, -Diff})),
-													{gambler_blind(G, small_blind, Diff), {T, [Diff| Bets]}};
-												_ ->
-													{gambler_blind(G, name_or_last, 0), {T, [0| Bets]}}
-											end
-										end, 
+										dm_room:to_player(G#gambler.pid, player_msg_install(player_state_changed, {change_balance, -Diff})),
+										{gambler_blind(G, big_blind, Diff), {T, [Diff| Bets]}};	
+									{_, s} ->	
+										Pay   = Room_info#room_info.blind_bet div 2,
+										Buyin = G#gambler.buyin,
+										if 	Buyin >= Pay ->
+												Diff = Pay;
+											true ->
+												Diff = Buyin
+										end,
+										dm_room:to_player(G#gambler.pid, player_msg_install(player_state_changed, {change_balance, -Diff})),
+										{gambler_blind(G, small_blind, Diff), {T, [Diff| Bets]}};
+									_ ->
+										{gambler_blind(G, name_or_last, 0), {T, [0| Bets]}}
+								end
+							end, 
 			{Gamblers2, {_, Bets1}} = lists:mapfoldl(Fun1, {Intro2, []}, Gamblers),
 			Room_info#room_info{gamblers=Gamblers2, bets=lists:reverse(Bets1), high_bet=Room_info#room_info.blind_bet}
 	end.
@@ -499,7 +502,6 @@ gambler_blind(Gambler, Small_or_big, Diff) ->
 prepare_active(Room_info) ->
 	One_v_one 		= Room_info#room_info.one_v_one,
 	State 			= Room_info#room_info.state,
-	Gamblers  		= Room_info#room_info.gamblers,
 	Dealer_position = Room_info#room_info.dealer_position,
 	case {One_v_one, State} of
 		{true, pre_flop} ->
@@ -552,15 +554,34 @@ deal_board_card(Room_info) ->
 	Cards = Room_info#room_info.cards,
 	case State of 
 		flop -> 
-			[Card1|Cards1] = Cards,
-			Board1 = [Card1|Board], 
-			[Card2|Cards2] = Cards1,
-			Board2 = [Card2|Board1];
+			{Board2, Cards2} = lists:split(3, Cards);
 		_ ->
 			[Card2|Cards2] = Cards,
 			Board2 = [Card2|Board]
 	end,
 	Room_info#room_info{cards=Cards2, board=Board2}.
+
+deal_all_board_card(Room_info) ->
+	Board 	  		 = Room_info#room_info.board,
+	Cards 			 = Room_info#room_info.cards,
+	Board_Num 	     = lists:foldl(fun (_,Acc) -> Acc+1 end, 0, Board),
+	{Board2, Cards2} = deal_left_board_card(Board, Cards, 5-Board_Num ),
+	Room_info#room_info{board=Board2, cards=Cards2}.
+
+deal_left_board_card(Board, Cards, 0) ->
+	{Board, Cards}; 
+deal_left_board_card(Board, [Card1|Cards1], Num) ->
+	deal_left_board_card([Card1|Board], Cards1, Num-1).
+
+set_hand_info(Room_info) ->
+	Board    = Room_info#room_info.board,
+	Gamblers = Room_info#room_info.gamblers,
+	Fun = fun (G) -> case G of [] -> G; _ -> Cards = G#gambler.hand, case Cards of [] -> G; _ -> G#gambler{hand_info=texas_poker_rule:check_hand(lists:append(Board, Cards))} end end end,
+	Gamblers1  = lists:map(Fun, Gamblers),
+	Room_info#room_info{gamblers = Gamblers1}.
+
+set_win_info(Room_info) ->
+	Room_info#room_info{win_info = []}.
 
 room_stand_up(Position, From, Room_info) ->
 	Gamblers = Room_info#room_info.gamblers,
