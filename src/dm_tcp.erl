@@ -250,7 +250,7 @@ process_unintended_msg(State, Method, Msg) ->
 
 cast_player(Msg, Player) ->
     case Player of
-        undefined -> dm_log:error("!!!!!!!!"), ok;
+        undefined -> dm_log:error("!!!!!!!!!!!!!!    player process undefined   !!!!!!!!!!!!!!!!!!"), ok;
         Player2 ->  gen_server:cast(Player2, {?MODULE, self(), Msg})
     end.
 

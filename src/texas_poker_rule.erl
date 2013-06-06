@@ -2,7 +2,7 @@
 
 %% I have to admit this implement is ineffective.
 
--export([check_hand/1, compete_hand/2]).
+-export([check_hand/1, compete_hand/2, test/0]).
 
 %% Card Structure : [[Type, Number] || Type <- [s, h ,d ,c] , Number <- lists:seq(2, 14)]
 %% Result Structure : [Result, Hand] || Result <- lists:seq(1, 10) , Hand <- [Card1,Card2,Card3,Card4,Card5]
@@ -18,6 +18,9 @@
 -define(PAIR, 2).
 -define(HIGH_CARD, 1).
 
+compete_hand([], []) -> 0;
+compete_hand([], _) -> -1;
+compete_hand(_, []) -> 1;
 compete_hand(Result1, Result2) ->
 	[Rank1, Hand1] = Result1,
 	[Rank2, Hand2] = Result2,
@@ -44,16 +47,18 @@ compete_number([H1|Hand1], [H2|Hand2]) ->
 			compete_number(Hand1, Hand2)
 	end.
 
+
 lists2tuple(Cards) ->
 	Fun = fun ([T,N]) -> {T,N} end,
 	lists:map(Fun, Cards).
 
+tuple2lists([]) -> [];
 tuple2lists(Tuple2) ->
 	Fun = fun ({T,N}) -> [T,N] end,
 	lists:map(Fun, Tuple2).
 
 check_hand(Cards) ->
-	check_hand(lists:reverse(lists:keysort(2, lists2tuple(Cards))), 10, 
+	check_hand(tuple2lists(lists:reverse(lists:keysort(2, lists2tuple(Cards)))), 10, 
 	   [fun is_royal_flush/1, 
 		fun is_straight_flush/1,
 		fun is_four_of_a_kind/1,
@@ -68,7 +73,7 @@ check_hand(Cards) ->
 check_hand(Cards, N, [Fun | Funs]) ->
 	[Rank, Hand] = Fun(Cards),
 	case Rank of 
-		_ when Rank > 0 ->	[N, tuple2lists(Hand)];
+		_ when Rank > 0 ->	[N, Hand];
 		_ -> check_hand(Cards, N-1, Funs)
 	end.
 
@@ -88,7 +93,7 @@ six_to_five([C1,C2,C3,C4,C5,C6]) ->
 five_to_five(C) -> [C].
 
 is_royal_flush(Cards) ->
-	is_royal_flush_(case lists:flatlength(Cards) of 7 -> seven_to_five(Cards); 6 -> six_to_five(Cards); 5 -> five_to_five(Cards) end).
+	is_royal_flush_(case lists:flatlength(Cards) of 14 -> seven_to_five(Cards); 12 -> six_to_five(Cards); 10 -> five_to_five(Cards); _ -> [] end).
 
 is_royal_flush_([]) ->
 	[0, []];
@@ -101,7 +106,7 @@ is_royal_flush_([H|Tail]) ->
 	end.
 
 is_straight_flush(Cards) ->
-	is_straight_flush_(case lists:flatlength(Cards) of 7 -> seven_to_five(Cards); 6 -> six_to_five(Cards); 5 -> five_to_five(Cards) end).
+	is_straight_flush_(case lists:flatlength(Cards) of 14 -> seven_to_five(Cards); 12 -> six_to_five(Cards); 10 -> five_to_five(Cards); _ -> [] end).
 
 is_straight_flush_([]) ->
 	[0, []];
@@ -116,7 +121,7 @@ is_straight_flush_([H|Tail]) ->
 	end.
 
 is_four_of_a_kind(Cards) ->
-	is_four_of_a_kind_(case lists:flatlength(Cards) of 7 -> seven_to_five(Cards); 6 -> six_to_five(Cards); 5 -> five_to_five(Cards) end).
+	is_four_of_a_kind_(case lists:flatlength(Cards) of 14 -> seven_to_five(Cards); 12 -> six_to_five(Cards); 10 -> five_to_five(Cards); _ -> [] end).
 
 is_four_of_a_kind_([]) ->
 	[0, []];
@@ -131,7 +136,7 @@ is_four_of_a_kind_([H|Tail]) ->
 	end.
 
 is_full_house(Cards) ->
-	is_full_house_(case lists:flatlength(Cards) of 7 -> seven_to_five(Cards); 6 -> six_to_five(Cards); 5 -> five_to_five(Cards) end).
+	is_full_house_(case lists:flatlength(Cards) of 14 -> seven_to_five(Cards); 12 -> six_to_five(Cards); 10 -> five_to_five(Cards); _ -> [] end).
 
 is_full_house_([]) ->
 	[0, []];
@@ -146,7 +151,7 @@ is_full_house_([H|Tail]) ->
 	end.
 
 is_flush(Cards) ->
-	is_flush_(case lists:flatlength(Cards) of 7 -> seven_to_five(Cards); 6 -> six_to_five(Cards); 5 -> five_to_five(Cards) end).
+	is_flush_(case lists:flatlength(Cards) of 14 -> seven_to_five(Cards); 12 -> six_to_five(Cards); 10 -> five_to_five(Cards); _ -> [] end).
 
 is_flush_([]) ->
 	[0, []];
@@ -159,7 +164,7 @@ is_flush_([H|Tail]) ->
 	end.
 
 is_straight(Cards) ->
-	is_straight_(case lists:flatlength(Cards) of 7 -> seven_to_five(Cards); 6 -> six_to_five(Cards); 5 -> five_to_five(Cards) end).
+	is_straight_(case lists:flatlength(Cards) of 14 -> seven_to_five(Cards); 12 -> six_to_five(Cards); 10 -> five_to_five(Cards); _ -> [] end).
 
 is_straight_([]) ->
 	[0, []];
@@ -174,7 +179,7 @@ is_straight_([H|Tail]) ->
 	end.
 
 is_three_of_a_kind(Cards) ->
-	is_three_of_a_kind_(case lists:flatlength(Cards) of 7 -> seven_to_five(Cards); 6 -> six_to_five(Cards); 5 -> five_to_five(Cards) end).
+	is_three_of_a_kind_(case lists:flatlength(Cards) of 14 -> seven_to_five(Cards); 12 -> six_to_five(Cards); 10 -> five_to_five(Cards); _ -> [] end).
 
 is_three_of_a_kind_([]) ->
 	[0, []];
@@ -191,7 +196,7 @@ is_three_of_a_kind_([H|Tail]) ->
 	end.
 
 is_two_pairs(Cards) ->
-	is_two_pairs_(case lists:flatlength(Cards) of 7 -> seven_to_five(Cards); 6 -> six_to_five(Cards); 5 -> five_to_five(Cards) end).
+	is_two_pairs_(case lists:flatlength(Cards) of 14 -> seven_to_five(Cards); 12 -> six_to_five(Cards); 10 -> five_to_five(Cards); _ -> [] end).
 
 is_two_pairs_([]) ->
 	[0, []];
@@ -208,7 +213,7 @@ is_two_pairs_([H|Tail]) ->
 	end.
 
 is_pair(Cards) ->
-	is_pair_(case lists:flatlength(Cards) of 7 -> seven_to_five(Cards); 6 -> six_to_five(Cards); 5 -> five_to_five(Cards) end).
+	is_pair_(case lists:flatlength(Cards) of 14 -> seven_to_five(Cards); 12 -> six_to_five(Cards); 10 -> five_to_five(Cards); _ -> [] end).
 
 is_pair_([]) ->
 	[0, []];
@@ -227,7 +232,12 @@ is_pair_([H|Tail]) ->
 	end.
 
 is_high_card(Cards) ->
-	is_high_card_(case lists:flatlength(Cards) of 7 -> seven_to_five(Cards); 6 -> six_to_five(Cards); 5 -> five_to_five(Cards) end).
+	is_high_card_(case lists:flatlength(Cards) of 14 -> seven_to_five(Cards); 12 -> six_to_five(Cards); 10 -> five_to_five(Cards); _ -> [] end).
 
+is_high_card_([]) ->
+	[1, []];
 is_high_card_([H|_]) ->
 	[?HIGH_CARD, H].
+
+test() ->
+	check_hand([[s,10],[s,11],[s,12],[s,13],[s,14]]).
